@@ -1418,9 +1418,11 @@ public class EditPostActivity extends LocaleAwareActivity implements
     private void showConfirmationDialogAndUploadPost(@NonNull String identifier, @NonNull String title,
                                                      @NonNull String description, @NonNull String positiveButton,
                                                      @NonNull String negativeButton) {
-        BasicFragmentDialog publishConfirmationDialog = new BasicFragmentDialog();
-        publishConfirmationDialog.initialize(identifier, title, description, positiveButton, negativeButton, null);
-        publishConfirmationDialog.show(getSupportFragmentManager(), identifier);
+        updateAndSavePostAsync(() -> {
+            BasicFragmentDialog publishConfirmationDialog = new BasicFragmentDialog();
+            publishConfirmationDialog.initialize(identifier, title, description, positiveButton, negativeButton, null);
+            publishConfirmationDialog.show(getSupportFragmentManager(), identifier);
+        });
     }
 
     private void performPrimaryAction() {
@@ -1935,39 +1937,42 @@ public class EditPostActivity extends LocaleAwareActivity implements
             AppLog.e(AppLog.T.POSTS, "Fragment not initialized");
             return;
         }
-        // check if the opened post had some unsaved local changes
-        boolean isFirstTimePublish = isFirstTimePublish(false);
 
-        // if post was modified during this editing session, save it
-        boolean shouldSave = shouldSavePost() || forceSave;
+        updateAndSavePostAsync(() -> {
+            // check if the opened post had some unsaved local changes
+            boolean isFirstTimePublish = isFirstTimePublish(false);
 
-        mPostEditorAnalyticsSession.setOutcome(Outcome.SAVE);
-        ActivityFinishState activityFinishState = ActivityFinishState.CANCELLED;
-        if (shouldSave) {
-            /*
-             * Remote-auto-save isn't supported on self-hosted sites. We can save the post online (as draft)
-             * only when it doesn't exist in the remote yet. When it does exist in the remote, we can upload
-             * it only when the user explicitly confirms the changes - eg. clicks on save/publish/submit. The
-             * user didn't confirm the changes in this code path.
-             */
-            boolean isWpComOrIsLocalDraft = mSite.isUsingWpComRestApi() || mEditPostRepository.isLocalDraft();
-            if (isWpComOrIsLocalDraft) {
-                activityFinishState = savePostOnline(isFirstTimePublish);
-            } else if (forceSave) {
-                activityFinishState = savePostOnline(false);
-            } else {
-                activityFinishState = ActivityFinishState.SAVED_LOCALLY;
+            // if post was modified during this editing session, save it
+            boolean shouldSave = shouldSavePost() || forceSave;
+
+            mPostEditorAnalyticsSession.setOutcome(Outcome.SAVE);
+            ActivityFinishState activityFinishState = ActivityFinishState.CANCELLED;
+            if (shouldSave) {
+                /*
+                 * Remote-auto-save isn't supported on self-hosted sites. We can save the post online (as draft)
+                 * only when it doesn't exist in the remote yet. When it does exist in the remote, we can upload
+                 * it only when the user explicitly confirms the changes - eg. clicks on save/publish/submit. The
+                 * user didn't confirm the changes in this code path.
+                 */
+                boolean isWpComOrIsLocalDraft = mSite.isUsingWpComRestApi() || mEditPostRepository.isLocalDraft();
+                if (isWpComOrIsLocalDraft) {
+                    activityFinishState = savePostOnline(isFirstTimePublish);
+                } else if (forceSave) {
+                    activityFinishState = savePostOnline(false);
+                } else {
+                    activityFinishState = ActivityFinishState.SAVED_LOCALLY;
+                }
             }
-        }
-        // discard post if new & empty
-        if (isDiscardable()) {
-            mDispatcher.dispatch(PostActionBuilder.newRemovePostAction(mEditPostRepository.getEditablePost()));
-            mPostEditorAnalyticsSession.setOutcome(Outcome.CANCEL);
-            activityFinishState = ActivityFinishState.CANCELLED;
-        }
-        if (doFinish) {
-            mViewModel.finish(activityFinishState);
-        }
+            // discard post if new & empty
+            if (isDiscardable()) {
+                mDispatcher.dispatch(PostActionBuilder.newRemovePostAction(mEditPostRepository.getEditablePost()));
+                mPostEditorAnalyticsSession.setOutcome(Outcome.CANCEL);
+                activityFinishState = ActivityFinishState.CANCELLED;
+            }
+            if (doFinish) {
+                mViewModel.finish(activityFinishState);
+            }
+        });
     }
 
     private boolean shouldSavePost() {
